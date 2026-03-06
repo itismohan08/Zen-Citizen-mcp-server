@@ -1,0 +1,351 @@
+import type {
+  YouTubeResults,
+  TwitterResults,
+  YouTubeVideo,
+  YouTubeComment,
+  TwitterTweet,
+} from "../api-results/types";
+import type {
+  ResearchResource,
+  Opinion,
+  KeyPoint,
+  ResearchQueryResult,
+  CredibilityMetrics,
+} from "./types";
+import { classifySentiment, calculateHelpfulnessScore, extractKeyPoints } from "./classifier";
+import { findGovernmentService } from "./services-db";
+
+/**
+ * Research Agent Orchestrator
+ * Processes YouTube and Twitter data, classifies sentiment, and extracts insights
+ */
+
+/**
+ * Process YouTube data into research resources
+ */
+export function processYouTubeResults(results: YouTubeResults): ResearchResource[] {
+  const resources: ResearchResource[] = [];
+
+  for (const video of results.videos) {
+    const opinions: Opinion[] = [];
+    const allKeyPoints: { text: string; sources: Set<string> }[] = [];
+
+    // Process comments into opinions
+    for (const comment of results.comments) {
+      const sentiment = classifySentiment(comment.textDisplay);
+      const helpfulness = calculateHelpfulnessScore(
+        comment.textDisplay,
+        comment.likeCount,
+        sentiment.sentiment
+      );
+
+      const opinion: Opinion = {
+        text: comment.textDisplay,
+        sentiment: sentiment.sentiment,
+        confidence: sentiment.confidence,
+        likes: comment.likeCount,
+        relevanceScore: helpfulness,
+        source: "youtube_comment",
+        timestamp: comment.publishedAt,
+      };
+
+      opinions.push(opinion);
+
+      // Extract key points
+      const keyPoints = extractKeyPoints(comment.textDisplay);
+      for (const kp of keyPoints) {
+        const existing = allKeyPoints.find(p => p.text === kp);
+        const authorName = comment.authorDisplayName || "Unknown";
+        if (existing) {
+          existing.sources.add(authorName);
+        } else {
+          allKeyPoints.push({ text: kp, sources: new Set([authorName]) });
+        }
+      }
+    }
+
+    // Convert key points to typed structure
+    const keyPoints: KeyPoint[] = allKeyPoints
+      .filter(kp => kp.sources.size > 0)
+      .map(kp => ({
+        text: kp.text,
+        frequency: kp.sources.size,
+        sentiment: classifySentiment(kp.text).sentiment,
+        sources: Array.from(kp.sources) as string[],
+        evidenceCount: kp.sources.size,
+      }))
+      .sort((a, b) => b.frequency - a.frequency);
+
+    // Calculate credibility metrics
+    const credibility = calculateCredibility({
+      type: "video",
+      likes: 0,
+      views: 0,
+      comments: results.comments.length,
+      timestamp: video.publishedAt,
+      source: "official" // YouTube videos from official channels are more credible
+    });
+
+    const resource: ResearchResource = {
+      id: video.id,
+      title: video.title,
+      url: video.url,
+      type: "video",
+      credibility,
+      opinions: opinions.slice(0, 10), // Top 10 opinions
+      keyPoints: keyPoints.slice(0, 5), // Top 5 key points
+      metadata: {
+        channelName: video.channelTitle,
+        author: video.channelTitle,
+        publishDate: video.publishedAt,
+        comments: results.comments.length || 0,
+      },
+    };
+
+    resources.push(resource);
+  }
+
+  return resources;
+}
+
+/**
+ * Process Twitter data into research resources
+ */
+export function processTwitterResults(results: TwitterResults): ResearchResource[] {
+  const resources: ResearchResource[] = [];
+  const allKeyPoints: { text: string; sources: Set<string> }[] = [];
+
+  for (const tweet of results.tweets) {
+    const sentiment = classifySentiment(tweet.text);
+    const helpfulness = calculateHelpfulnessScore(
+      tweet.text,
+      tweet.likeCount,
+      sentiment.sentiment
+    );
+
+    const opinion: Opinion = {
+      text: tweet.text,
+      sentiment: sentiment.sentiment,
+      confidence: sentiment.confidence,
+      likes: tweet.likeCount,
+      relevanceScore: helpfulness,
+      source: "tweet",
+      timestamp: tweet.createdAt,
+    };
+
+    // Extract key points
+    const keyPoints = extractKeyPoints(tweet.text);
+    for (const kp of keyPoints) {
+      const existing = allKeyPoints.find(p => p.text === kp);
+      const authorName = tweet.authorName || tweet.author || "Unknown";
+      if (existing) {
+        existing.sources.add(authorName);
+      } else {
+        allKeyPoints.push({ text: kp, sources: new Set([authorName]) });
+      }
+    }
+
+    // Create resource for high-credibility tweets
+    if (helpfulness > 60) {
+      const credibility = calculateCredibility({
+        type: "tweet",
+        likes: tweet.likeCount,
+        views: tweet.retweetCount,
+        comments: tweet.replyCount || 0,
+        timestamp: tweet.createdAt,
+        source: tweet.authorVerified ? "verified" : "community",
+      });
+
+      const resource: ResearchResource = {
+        id: tweet.id,
+        title: tweet.text.substring(0, 100),
+        url: `https://twitter.com/${tweet.authorHandle}/status/${tweet.id}`,
+        type: "tweet",
+        credibility,
+        opinions: [opinion],
+        keyPoints: keyPoints
+          .map(text => ({
+            text,
+            frequency: 1,
+            sentiment: classifySentiment(text).sentiment,
+            sources: [tweet.authorName || tweet.author],
+            evidenceCount: 1,
+          })),
+        metadata: {
+          author: tweet.authorName || tweet.author,
+          publishDate: tweet.createdAt,
+          likes: tweet.likeCount,
+          comments: tweet.replyCount || 0,
+        },
+      };
+
+      resources.push(resource);
+    }
+  }
+
+  return resources;
+}
+
+/**
+ * Calculate credibility metrics for a resource
+ */
+interface CredibilityInput {
+  type: "video" | "tweet" | "official";
+  likes: number;
+  views: number;
+  comments: number;
+  timestamp: string;
+  source: "official" | "verified" | "community" | "unknown";
+}
+
+function calculateCredibility(input: CredibilityInput): CredibilityMetrics {
+  let score = 50; // Base score
+
+  // Source authority (most important)
+  if (input.source === "official") score += 40;
+  else if (input.source === "verified") score += 25;
+  else if (input.source === "community") score += 10;
+
+  // Engagement metrics
+  const engagement = input.likes + input.views + input.comments;
+  const engagementBonus = Math.min(20, Math.floor(Math.log(engagement + 1) * 2));
+  score += engagementBonus;
+
+  // Recency (newer is better)
+  const dateObj = new Date(input.timestamp);
+  const daysSincePost = (Date.now() - dateObj.getTime()) / (1000 * 60 * 60 * 24);
+  
+  let recencyScore = 100;
+  if (daysSincePost > 365) recencyScore = 40; // Older than 1 year
+  else if (daysSincePost > 90) recencyScore = 70;
+  else if (daysSincePost > 30) recencyScore = 85;
+  
+  score += (recencyScore - 50) * 0.3; // Weight recency at 30%
+
+  // Engagement rate
+  const engagementRate = input.type === "tweet" 
+    ? (input.likes + input.views) / 100 
+    : input.comments / 10;
+  
+  score += Math.min(10, engagementRate);
+
+  return {
+    overall: Math.max(0, Math.min(100, score)),
+    engagement: Math.min(100, (engagement / 1000) * 100), // Normalize
+    recency: recencyScore,
+    source_authority: input.source,
+    verification_status: input.source === "official" || input.source === "verified",
+  };
+}
+
+/**
+ * Compile final research result
+ */
+export function compileResearchResult(
+  query: string,
+  youtubeResources: ResearchResource[],
+  twitterResources: ResearchResource[]
+): ResearchQueryResult {
+  const allResources = [...youtubeResources, ...twitterResources];
+
+  // Sort by credibility
+  allResources.sort((a, b) => b.credibility.overall - a.credibility.overall);
+
+  // Calculate opinion distribution
+  let helpfulCount = 0;
+  let unhelpfulCount = 0;
+  let neutralCount = 0;
+
+  for (const resource of allResources) {
+    for (const opinion of resource.opinions) {
+      if (opinion.sentiment === "positive" || opinion.sentiment === "helpful") helpfulCount++;
+      else if (opinion.sentiment === "negative" || opinion.sentiment === "unhelpful") unhelpfulCount++;
+      else neutralCount++;
+    }
+  }
+
+  const total = helpfulCount + unhelpfulCount + neutralCount;
+  const opinionDistribution = {
+    helpful: total > 0 ? Math.round((helpfulCount / total) * 100) : 0,
+    unhelpful: total > 0 ? Math.round((unhelpfulCount / total) * 100) : 0,
+    neutral: total > 0 ? Math.round((neutralCount / total) * 100) : 0,
+  };
+
+  // Extract top key points
+  const allKeyPoints: KeyPoint[] = [];
+  for (const resource of allResources) {
+    allKeyPoints.push(...resource.keyPoints);
+  }
+
+  // Merge and deduplicate key points
+  const mergedKeyPoints = mergeKeyPoints(allKeyPoints);
+  const topKeyPoints = mergedKeyPoints
+    .sort((a, b) => (b.frequency + b.evidenceCount) - (a.frequency + a.evidenceCount))
+    .slice(0, 5);
+
+  // Generate recommended actions
+  const recommendedActions = generateRecommendations(query, topKeyPoints, allResources);
+
+  // Find related government service
+  const governmentService = findGovernmentService(query);
+
+  return {
+    query,
+    timestamp: new Date().toISOString(),
+    governmentService: governmentService || undefined,
+    resources: allResources.slice(0, 10), // Top 10 resources
+    opinionDistribution,
+    averageCredibility: Math.round(
+      allResources.reduce((sum, r) => sum + r.credibility.overall, 0) / allResources.length
+    ),
+    topKeyPoints,
+    recommendedActions,
+  };
+}
+
+/**
+ * Merge duplicate key points
+ */
+function mergeKeyPoints(keyPoints: KeyPoint[]): KeyPoint[] {
+  const merged: Record<string, KeyPoint> = {};
+
+  for (const kp of keyPoints) {
+    const key = kp.text.toLowerCase();
+    if (merged[key]) {
+      merged[key].frequency += kp.frequency;
+      merged[key].evidenceCount += kp.evidenceCount;
+      merged[key].sources = [...new Set([...merged[key].sources, ...kp.sources])];
+    } else {
+      merged[key] = { ...kp };
+    }
+  }
+
+  return Object.values(merged);
+}
+
+/**
+ * Generate recommended actions based on extracted insights
+ */
+function generateRecommendations(
+  query: string,
+  keyPoints: KeyPoint[],
+  resources: ResearchResource[]
+): string[] {
+  const recommendations: string[] = [];
+
+  // Add top key points as recommendations
+  for (const kp of keyPoints.slice(0, 3)) {
+    if (kp.sentiment !== "spam" && kp.text.length > 10) {
+      recommendations.push(kp.text);
+    }
+  }
+
+  // Add official resource recommendations
+  for (const resource of resources) {
+    if (resource.credibility.source_authority === "official" && recommendations.length < 5) {
+      recommendations.push(`Check official source: ${resource.title}`);
+    }
+  }
+
+  return recommendations.slice(0, 5);
+}
