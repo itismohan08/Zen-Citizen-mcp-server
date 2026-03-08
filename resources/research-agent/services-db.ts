@@ -1,4 +1,4 @@
-import type { GovernmentService } from "./types";
+import type { GovernmentService } from "./types.js";
 
 /**
  * Government Services Database

@@ -6,7 +6,7 @@
  */
 
 import dotenv from "dotenv";
-import { researchGovernmentQuery } from "./api";
+import { researchGovernmentQuery } from "./api.js";
 
 // Load environment variables
 dotenv.config();

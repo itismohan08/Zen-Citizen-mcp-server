@@ -1,8 +1,8 @@
 import { useWidget, type WidgetMetadata } from "mcp-use/react";
 import React, { useState } from "react";
 import { z } from "zod";
-import { CombinedResultsSchema } from "./types";
-import type { CombinedResults } from "./types";
+import { CombinedResultsSchema } from "./types.js";
+import type { CombinedResults } from "./types.js";
 import "../styles.css";
 
 export const widgetMetadata: WidgetMetadata = {

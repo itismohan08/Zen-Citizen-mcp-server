@@ -1,7 +1,7 @@
 import { MCPServer, object, text, widget, markdown } from "mcp-use/server";
 import { z } from "zod";
-import { searchYouTube, searchTwitter, searchBothPlatforms, researchGovernmentQuery } from "./api";
-import type { YouTubeResults, TwitterResults } from "./resources/api-results/types";
+import { searchYouTube, searchTwitter, searchBothPlatforms, researchGovernmentQuery } from "./api.js";
+import type { YouTubeResults, TwitterResults } from "./resources/api-results/types.js";
 
 const server = new MCPServer({
   name: "Zen-Citizen",

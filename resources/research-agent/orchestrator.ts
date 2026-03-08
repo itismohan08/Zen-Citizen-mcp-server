@@ -4,16 +4,16 @@ import type {
   YouTubeVideo,
   YouTubeComment,
   TwitterTweet,
-} from "../api-results/types";
+} from "../api-results/types.js";
 import type {
   ResearchResource,
   Opinion,
   KeyPoint,
   ResearchQueryResult,
   CredibilityMetrics,
-} from "./types";
-import { classifySentiment, calculateHelpfulnessScore, extractKeyPoints } from "./classifier";
-import { findGovernmentService } from "./services-db";
+} from "./types.js";
+import { classifySentiment, calculateHelpfulnessScore, extractKeyPoints } from "./classifier.js";
+import { findGovernmentService } from "./services-db.js";
 
 /**
  * Research Agent Orchestrator

@@ -1,4 +1,4 @@
-import type { SentimentType, SentimentScore } from "./types";
+import type { SentimentType, SentimentScore } from "./types.js";
 
 /**
  * Sentiment Classifier for analyzing opinions and feedback

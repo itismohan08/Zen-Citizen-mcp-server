@@ -1,7 +1,7 @@
 import axios from "axios";
-import type { YouTubeResults, TwitterResults, YouTubeVideo, YouTubeComment, TwitterTweet } from "./resources/api-results/types";
-import type { ResearchQueryResult } from "./resources/research-agent/types";
-import { processYouTubeResults, processTwitterResults, compileResearchResult } from "./resources/research-agent/orchestrator";
+import type { YouTubeResults, TwitterResults, YouTubeVideo, YouTubeComment, TwitterTweet } from "./resources/api-results/types.js";
+import type { ResearchQueryResult } from "./resources/research-agent/types.js";
+import { processYouTubeResults, processTwitterResults, compileResearchResult } from "./resources/research-agent/orchestrator.js";
 
 /**
  * YouTube API Helper
