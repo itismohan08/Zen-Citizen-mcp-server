@@ -8,7 +8,7 @@ const server = new MCPServer({
   title: "Zen-Citizen", // display name
   version: "1.0.0",
   description: "MCP server with MCP Apps integration",
-  baseUrl: process.env.MCP_URL || "http://localhost:3000", // Full base URL (e.g., https://myserver.com)
+  baseUrl: process.env.MCP_URL || "https://70qwsysdwu49.deploy.mcp-use.com", // Full base URL (e.g., https://myserver.com)
   favicon: "favicon.ico",
   websiteUrl: "https://mcp-use.com", // Can be customized later
   icons: [
