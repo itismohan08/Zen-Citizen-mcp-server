@@ -234,4 +234,3 @@ npm run deploy
 
 ---
 
-Built with ❤️ using [mcp-use](https://mcp-use.com)
